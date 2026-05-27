@@ -1,4 +1,5 @@
 namespace MediTrack.Api.Models;
+using System.Text.Json.Serialization;
 
 public class Doctor
 {
@@ -9,7 +10,7 @@ public class Doctor
     public string Email { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
     public int SpecialtyId { get; set; }
-    public Specialty Specialty { get; set; } = null!;
+    public Specialty? Specialty { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -31,6 +32,7 @@ public class Patient
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Navigation property
+    [JsonIgnore] // To prevent circular reference during serialization
     public List<Appointment> Appointments { get; set; } = new();
 }
 
@@ -38,9 +40,11 @@ public class Appointment
 {
     public int Id { get; set; }
     public int PatientId { get; set; }
-    public Patient Patient { get; set; } = null!;
+    
+    [JsonIgnore] // To prevent circular reference during serialization
+    public Patient? Patient { get; set; }
     public int DoctorId { get; set; }
-    public Doctor Doctor { get; set; } = null!;
+    public Doctor? Doctor { get; set; }
     public DateTime AppointmentDateTime { get; set; }
     public DateTime? OriginalDateTime { get; set; }  // For rescheduled appointments
     public string Reason { get; set; } = string.Empty;
