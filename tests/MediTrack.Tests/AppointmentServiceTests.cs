@@ -104,39 +104,129 @@ public class AppointmentServiceTests
     public async Task BookAppointmentAsync_ShouldSucceed_WhenSlotIsAvailable()
     {
         // Arrange
-        // using var db = CreateInMemoryContext();
-        // var doctor = await SeedDoctor(db);
-        // var patient = await SeedPatient(db);
-        // var logger = new Mock<ILogger<AppointmentService>>();
-        // var service = new AppointmentService(db, logger.Object);
-        // var request = new BookAppointmentRequest(...);
+        using var db = CreateInMemoryContext();
+        var doctor = await SeedDoctor(db, id: 200);
+        var patient = await SeedPatient(db, id: 200);
+
+        var loggerMock = new Mock<ILogger<AppointmentService>>();
+        var service = new AppointmentService(db, loggerMock.Object);
+
+        var appointmentDateTime = DateTime.UtcNow.AddDays(1).Date.AddHours(9); // tomorrow at 09:00 UTC
+        var request = new BookAppointmentRequest(
+            patient.Id,
+            doctor.Id,
+            appointmentDateTime,
+            "Routine check",
+            "test notes"
+        );
 
         // Act
-        // var result = await service.BookAppointmentAsync(request);
+        var result = await service.BookAppointmentAsync(request);
 
         // Assert
-        // Assert.NotNull(result);
-        // Assert.Equal("Scheduled", result.Status);
+        Assert.NotNull(result);
+        Assert.Equal(patient.Id, result.PatientId);
+        Assert.Equal(doctor.Id, result.DoctorId);
+        Assert.Equal(appointmentDateTime, result.AppointmentDateTime);
+        Assert.Equal("Scheduled", result.Status);
 
-        Assert.True(true, "TODO: Implement this test");
+        // Verify persisted in DB
+        var persisted = await db.Appointments.FirstOrDefaultAsync(a => a.Id == result.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(AppointmentStatus.Scheduled, persisted!.Status);
+        Assert.Equal(patient.Id, persisted.PatientId);
+        Assert.Equal(doctor.Id, persisted.DoctorId);
     }
 
     [Fact]
     public async Task BookAppointmentAsync_ShouldThrow_WhenSlotAlreadyTaken()
     {
-        Assert.True(true, "TODO: Implement this test");
+        // Arrange
+        using var db = CreateInMemoryContext();
+        var doctor = await SeedDoctor(db, id: 201);
+        var patient1 = await SeedPatient(db, id: 201);
+        var patient2 = await SeedPatient(db, id: 202);
+
+        var appointmentDateTime = DateTime.UtcNow.AddDays(2).Date.AddHours(10);
+
+        // seed an existing scheduled appointment for the doctor at that time
+        var existing = new Appointment
+        {
+            PatientId = patient1.Id,
+            DoctorId = doctor.Id,
+            AppointmentDateTime = appointmentDateTime,
+            Reason = "Existing",
+            Status = AppointmentStatus.Scheduled,
+            CreatedAt = DateTime.UtcNow
+        };
+        db.Appointments.Add(existing);
+        await db.SaveChangesAsync();
+
+        var loggerMock = new Mock<ILogger<AppointmentService>>();
+        var service = new AppointmentService(db, loggerMock.Object);
+
+        // attempt to book another appointment for the same doctor at the same time with a different patient
+        var request = new BookAppointmentRequest(
+            patient2.Id,
+            doctor.Id,
+            appointmentDateTime,
+            "New booking attempt",
+            "test notes"
+        );
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.BookAppointmentAsync(request));
+        Assert.Contains("This time slot is already booked for this doctor.", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public async Task BookAppointmentAsync_ShouldThrow_WhenDoctorNotFound()
     {
-        Assert.True(true, "TODO: Implement this test");
+        // Arrange
+        using var db = CreateInMemoryContext();
+        var patient = await SeedPatient(db, id: 300);
+
+        var loggerMock = new Mock<ILogger<AppointmentService>>();
+        var service = new AppointmentService(db, loggerMock.Object);
+
+        var missingDoctorId = 9999;
+        var appointmentDateTime = DateTime.UtcNow.AddDays(3).Date.AddHours(11);
+        var request = new BookAppointmentRequest(
+            patient.Id,
+            missingDoctorId,
+            appointmentDateTime,
+            "Attempt with missing doctor",
+            "test notes"
+        );
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.BookAppointmentAsync(request));
+        Assert.Contains($"Doctor with ID {missingDoctorId} not found", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public async Task BookAppointmentAsync_ShouldThrow_WhenPatientNotFound()
     {
-        Assert.True(true, "TODO: Implement this test");
+        // Arrange
+        using var db = CreateInMemoryContext();
+        var doctor = await SeedDoctor(db, id: 400);
+
+        var loggerMock = new Mock<ILogger<AppointmentService>>();
+        var service = new AppointmentService(db, loggerMock.Object);
+
+        var missingPatientId = 8888;
+        var appointmentDateTime = DateTime.UtcNow.AddDays(4).Date.AddHours(14);
+        var request = new BookAppointmentRequest(
+            missingPatientId,
+            doctor.Id,
+            appointmentDateTime,
+            "Attempt with missing patient",
+            "test notes"
+        );
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<ArgumentException>(() => service.BookAppointmentAsync(request));
+        Assert.Contains($"Patient with ID {missingPatientId} not found", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
