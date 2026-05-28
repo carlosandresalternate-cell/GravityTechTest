@@ -90,6 +90,14 @@ public class AppointmentsController : ControllerBase
         //   404 if appointment not found
         //   400 if appointment is not in Scheduled status
         //   409 if the new time slot is already taken
-        return StatusCode(501, "Not implemented yet");
+
+        var rescheduledAppointment = await _appointmentService.RescheduleAppointmentAsync(id, request);
+        
+        if (rescheduledAppointment is null)
+        {
+            return NotFound();
+        }
+
+        return Ok(rescheduledAppointment);
     }
 }

@@ -177,7 +177,54 @@ public class AppointmentService : IAppointmentService
         // - Update AppointmentDateTime to the new time
         // - Set UpdatedAt
         // - Return the updated appointment
-        throw new NotImplementedException("Task 2c: Implement appointment rescheduling");
+
+        // Make the check + update atomic to avoid double-booking races
+        await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+
+        // Load the appointment
+        var appointment = await _db.Appointments
+            .FirstOrDefaultAsync(a => a.Id == appointmentId);
+
+        if (appointment == null)
+            return null;
+
+        // Only scheduled appointments can be rescheduled
+        if (appointment.Status != AppointmentStatus.Scheduled)
+            throw new InvalidOperationException("Appointment is not in Scheduled status and cannot be rescheduled.");
+
+        // Check that the new slot is not already taken by another scheduled appointment for the same doctor
+        var conflict = await _db.Appointments
+            .AnyAsync(a => a.DoctorId == appointment.DoctorId
+                        && a.AppointmentDateTime == request.NewDateTime
+                        && a.Status == AppointmentStatus.Scheduled
+                        && a.Id != appointmentId);
+
+        if (conflict)
+            throw new InvalidOperationException("The new time slot is already booked for this doctor.");
+
+        // Preserve the original date/time (only set if not already set)
+        if (!appointment.OriginalDateTime.HasValue)
+        {
+            appointment.OriginalDateTime = appointment.AppointmentDateTime;
+        }
+
+        var previousDateTime = appointment.AppointmentDateTime;
+        appointment.AppointmentDateTime = request.NewDateTime;
+        appointment.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        // Reload with navigation properties for the response mapping
+        var updated = await _db.Appointments
+            .Include(a => a.Patient)
+            .Include(a => a.Doctor)
+                .ThenInclude(d => d.Specialty)
+            .FirstOrDefaultAsync(a => a.Id == appointmentId);
+
+        _logger.LogInformation("Appointment {Id} rescheduled from {Old} to {New}", appointmentId, previousDateTime, appointment.AppointmentDateTime);
+
+        return updated == null ? null : MapToResponse(updated);
     }
 
     private static AppointmentResponse MapToResponse(Appointment a)
