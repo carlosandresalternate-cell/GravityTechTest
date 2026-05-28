@@ -44,25 +44,82 @@ public class ValidatorTests
     [Fact]
     public void CreatePatient_ValidRequest_ShouldPass()
     {
-        Assert.True(true, "TODO: Implement after completing Task 3 (validators)");
+        // Arrange
+        var validator = new CreatePatientValidator();
+        var model = new CreatePatientRequest(
+            FirstName: "Alice",
+            LastName: "Smith",
+            Email: "alice.smith@example.com",
+            Phone: "555-123-4567",
+            DateOfBirth: DateTime.UtcNow.AddYears(-30),
+            Address: "123 Main St");
+
+        // Act
+        var result = validator.TestValidate(model);
+
+        // Assert
+        result.ShouldNotHaveAnyValidationErrors();
     }
 
     [Fact]
     public void CreatePatient_EmptyFirstName_ShouldFail()
     {
-        Assert.True(true, "TODO: Implement after completing Task 3 (validators)");
+        // Arrange
+        var validator = new CreatePatientValidator();
+        var model = new CreatePatientRequest(
+            FirstName: string.Empty,
+            LastName: "Smith",
+            Email: "alice.smith@example.com",
+            Phone: "555-123-4567",
+            DateOfBirth: DateTime.UtcNow.AddYears(-30),
+            Address: null);
+
+        // Act
+        var result = validator.TestValidate(model);
+
+        // Assert
+        result.ShouldHaveValidationErrorFor(x => x.FirstName);
+        result.ShouldNotHaveValidationErrorFor(x => x.LastName);
     }
 
     [Fact]
     public void CreatePatient_FutureDateOfBirth_ShouldFail()
     {
-        Assert.True(true, "TODO: Implement after completing Task 3 (validators)");
+        // Arrange
+        var validator = new CreatePatientValidator();
+        var model = new CreatePatientRequest(
+            FirstName: "Alice",
+            LastName: "Smith",
+            Email: "alice.smith@example.com",
+            Phone: "555-123-4567",
+            DateOfBirth: DateTime.UtcNow.AddDays(20), // future
+            Address: null);
+
+        // Act
+        var result = validator.TestValidate(model);
+
+        // Assert
+        result.ShouldHaveValidationErrorFor(x => x.DateOfBirth);
     }
 
     [Fact]
     public void CreatePatient_InvalidEmail_ShouldFail()
     {
-        Assert.True(true, "TODO: Implement after completing Task 3 (validators)");
+        // Arrange
+        var validator = new CreatePatientValidator();
+        var model = new CreatePatientRequest(
+            FirstName: "Alice",
+            LastName: "Smith",
+            Email: "dummy-nonvalid-email",
+            Phone: "555-123-4567",
+            DateOfBirth: DateTime.UtcNow.AddYears(-30),
+            Address: null);
+
+        // Act
+        var result = validator.TestValidate(model);
+
+        // Assert
+        result.ShouldHaveValidationErrorFor(x => x.Email);
     }
 
     [Fact]
