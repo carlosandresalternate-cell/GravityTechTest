@@ -232,13 +232,76 @@ public class AppointmentServiceTests
     [Fact]
     public async Task CancelAppointmentAsync_ShouldSucceed_WhenScheduled()
     {
-        Assert.True(true, "TODO: Implement this test");
+        // Arrange
+        using var db = CreateInMemoryContext();
+        var doctor = await SeedDoctor(db, id: 501);
+        var patient = await SeedPatient(db, id: 501);
+
+        var appointmentDateTime = DateTime.UtcNow.AddDays(5).Date.AddHours(15);
+
+        var appointment = new Appointment
+        {
+            PatientId = patient.Id,
+            DoctorId = doctor.Id,
+            AppointmentDateTime = appointmentDateTime,
+            Reason = "To be cancelled",
+            Status = AppointmentStatus.Scheduled,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        db.Appointments.Add(appointment);
+        await db.SaveChangesAsync();
+
+        var loggerMock = new Mock<ILogger<AppointmentService>>();
+        var service = new AppointmentService(db, loggerMock.Object);
+
+        // Act
+        var result = await service.CancelAppointmentAsync(appointment.Id);
+
+        // Assert
+        Assert.True(result);
+
+        var persisted = await db.Appointments.FirstOrDefaultAsync(a => a.Id == appointment.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(AppointmentStatus.Cancelled, persisted!.Status);
+        Assert.NotNull(persisted.UpdatedAt);
+        Assert.True(persisted.UpdatedAt > persisted.CreatedAt);
     }
 
     [Fact]
     public async Task CancelAppointmentAsync_ShouldThrow_WhenCompleted()
     {
         // NOTE: This test should pass AFTER fixing Bug #5
-        Assert.True(true, "TODO: Implement this test");
+        // Arrange
+        using var db = CreateInMemoryContext();
+        var doctor = await SeedDoctor(db, id: 502);
+        var patient = await SeedPatient(db, id: 502);
+
+        var appointmentDateTime = DateTime.UtcNow.AddDays(6).Date.AddHours(16);
+
+        var appointment = new Appointment
+        {
+            PatientId = patient.Id,
+            DoctorId = doctor.Id,
+            AppointmentDateTime = appointmentDateTime,
+            Reason = "Already completed",
+            Status = AppointmentStatus.Completed,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        db.Appointments.Add(appointment);
+        await db.SaveChangesAsync();
+
+        var loggerMock = new Mock<ILogger<AppointmentService>>();
+        var service = new AppointmentService(db, loggerMock.Object);
+
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CancelAppointmentAsync(appointment.Id));
+        Assert.Contains("Only scheduled appointments can be cancelled.", ex.Message, StringComparison.OrdinalIgnoreCase);
+
+        // Verify status did not change in DB
+        var persisted = await db.Appointments.FirstOrDefaultAsync(a => a.Id == appointment.Id);
+        Assert.NotNull(persisted);
+        Assert.Equal(AppointmentStatus.Completed, persisted!.Status);
     }
 }
