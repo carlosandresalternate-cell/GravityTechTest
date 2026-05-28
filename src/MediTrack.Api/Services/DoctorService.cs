@@ -102,6 +102,48 @@ public class DoctorService : IDoctorService
         //   (a doctor is "available" if they have fewer than 8 appointments on that day)
         // - Sort by last name, then first name
         // - Only return active doctors
-        throw new NotImplementedException("Task 2b: Implement doctor search");
+
+        var availableDoctorsResponse = new List<DoctorResponse>();
+
+        var activeDoctorsQuery = _db.Doctors
+            .Where(d => d.IsActive)
+            .Include(d => d.Specialty)
+            .Include(d => d.Appointments)
+            .OrderBy(d => d.LastName) // Sort by last name
+            .ThenBy(d => d.FirstName) // Then by first name
+            .AsQueryable();
+
+        if (activeDoctorsQuery is null)
+        {
+            return availableDoctorsResponse; //no drs found
+        }
+
+        if (availableOn.HasValue)
+        {
+            availableDoctorsResponse = (await activeDoctorsQuery.ToListAsync())
+                .Where(d => d.Appointments.Count(a => a.AppointmentDateTime.Date == availableOn.Value.Date) < 8
+                && (specialty == null || d.Specialty!.Name.Contains(specialty, StringComparison.OrdinalIgnoreCase)))
+                .Select(d => new DoctorResponse(
+                    d.Id,
+                    d.FullName,
+                    d.Email,
+                    d.Specialty != null ? string.IsNullOrWhiteSpace(d.Specialty.Name) ? "Unknown" : d.Specialty.Name : "Unknown",
+                    d.IsActive
+                )).ToList();
+        }
+        else
+        {
+            availableDoctorsResponse = (await activeDoctorsQuery.ToListAsync())
+                .Where(d => specialty == null || d.Specialty!.Name.Contains(specialty, StringComparison.OrdinalIgnoreCase))
+                .Select(d => new DoctorResponse(
+                    d.Id,
+                    d.FullName,
+                    d.Email,
+                    d.Specialty != null ? string.IsNullOrWhiteSpace(d.Specialty.Name) ? "Unknown" : d.Specialty.Name : "Unknown",
+                    d.IsActive
+                )).ToList();
+        }
+
+        return availableDoctorsResponse;
     }
 }

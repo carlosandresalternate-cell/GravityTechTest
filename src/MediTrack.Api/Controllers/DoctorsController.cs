@@ -55,7 +55,13 @@ public class DoctorsController : ControllerBase
         [FromQuery] string? specialty,
         [FromQuery] DateTime? availableOn)
     {
-        // TODO: Call _doctorService.SearchDoctorsAsync and return results
-        return StatusCode(501, "Not implemented yet");
+        var availableDoctors = await _doctorService.SearchDoctorsAsync(specialty, availableOn);
+
+        if (availableDoctors is null || availableDoctors.Count == 0)
+        {
+            return NotFound();
+        }
+
+        return Ok(availableDoctors);
     }
 }
