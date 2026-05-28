@@ -1,4 +1,6 @@
 namespace MediTrack.Api.Models;
+
+using MediTrack.Api.Common;
 using System.Text.Json.Serialization;
 
 public class Doctor
@@ -52,6 +54,9 @@ public class Appointment
     public AppointmentStatus Status { get; set; } = AppointmentStatus.Scheduled;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
+
+    // Concurrency token for optimistic concurrency (prevents double-booking races)
+    public byte[] RowVersion { get; set; } = Utils.GenerateRandomRowVersion();
 }
 
 public enum AppointmentStatus
