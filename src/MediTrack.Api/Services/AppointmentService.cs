@@ -30,7 +30,7 @@ public class AppointmentService : IAppointmentService
             .Include(a => a.Patient)
             .Include(a => a.Doctor)
                 .ThenInclude(d => d.Specialty)
-            .Where(a => a.AppointmentDateTime < DateTime.UtcNow  // BUG: should be >
+            .Where(a => a.AppointmentDateTime > DateTime.UtcNow
                      && a.Status == AppointmentStatus.Scheduled);
 
         if (doctorId.HasValue)
@@ -43,7 +43,7 @@ public class AppointmentService : IAppointmentService
             .ToListAsync();
 
         // BUG #6 (partial): String interpolation in logging
-        _logger.LogInformation($"Found {appointments.Count} upcoming appointments at {DateTime.UtcNow}");
+        _logger.LogInformation("Found {Count} upcoming appointments at {Time}", appointments.Count, DateTime.UtcNow);
 
         return appointments.Select(MapToResponse).ToList();
     }
@@ -71,6 +71,10 @@ public class AppointmentService : IAppointmentService
     /// </summary>
     public async Task<AppointmentResponse> BookAppointmentAsync(BookAppointmentRequest request)
     {
+        // Use a serializable transaction so the check + insert are atomic.
+        await using var transaction = await _db.Database.BeginTransactionAsync(System.Data.IsolationLevel.Serializable);
+
+
         // BUG #6 (partial): String interpolation in logging
         _logger.LogInformation($"Booking appointment for patient {request.PatientId} with doctor {request.DoctorId} at {request.AppointmentDateTime}");
 
@@ -91,6 +95,7 @@ public class AppointmentService : IAppointmentService
 
         // BUG #4: Race condition — this check and the insert below are NOT atomic.
         // Two requests arriving simultaneously can both pass this check.
+        // fix: Availability check inside the transaction
         var conflicting = await _db.Appointments
             .AnyAsync(a => a.DoctorId == request.DoctorId
                         && a.AppointmentDateTime == request.AppointmentDateTime
@@ -113,6 +118,8 @@ public class AppointmentService : IAppointmentService
 
         _db.Appointments.Add(appointment);
         await _db.SaveChangesAsync();
+
+        await transaction.CommitAsync();
 
         _logger.LogInformation($"Appointment {appointment.Id} booked successfully");
 
@@ -140,6 +147,11 @@ public class AppointmentService : IAppointmentService
         if (appointment.Status == AppointmentStatus.Cancelled)
         {
             throw new InvalidOperationException("Appointment is already cancelled.");
+        }
+
+        if (appointment.Status != AppointmentStatus.Scheduled)
+        {
+            throw new InvalidOperationException("Only scheduled appointments can be cancelled.");
         }
 
         appointment.Status = AppointmentStatus.Cancelled;

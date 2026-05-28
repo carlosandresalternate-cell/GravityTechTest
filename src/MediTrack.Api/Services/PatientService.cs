@@ -53,6 +53,13 @@ public class PatientService : IPatientService
 
         // BUG #3: No null check — directly accessing patient properties
         // If patient is null, this will throw NullReferenceException
+
+        //fix: Add null check to handle case where patient is not found
+        if (patient == null)
+        {
+            throw new InvalidOperationException("Patient not found.");
+        }
+
         var appointments = patient.Appointments
             .OrderByDescending(a => a.AppointmentDateTime)
             .Select(a => new AppointmentResponse(

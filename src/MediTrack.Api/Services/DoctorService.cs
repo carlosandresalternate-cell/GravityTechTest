@@ -27,7 +27,7 @@ public class DoctorService : IDoctorService
             d.Id,
             d.FullName,
             d.Email,
-            d.Specialty.Name,
+            d.Specialty?.Name ?? "Unknown",
             d.IsActive
         )).ToList();
     }
@@ -44,7 +44,7 @@ public class DoctorService : IDoctorService
             doctor.Id,
             doctor.FullName,
             doctor.Email,
-            doctor.Specialty.Name,
+            doctor.Specialty?.Name ?? "Unknown",
             doctor.IsActive
         );
     }
@@ -62,36 +62,30 @@ public class DoctorService : IDoctorService
     public async Task<List<DoctorWithAvailabilityResponse>> GetDoctorsWithAvailabilityAsync()
     {
         // BUG #1: N+1 query — loads doctors, then queries appointments one-by-one
+        //fix: use Include to load appointments in the same query
         var doctors = await _db.Doctors
             .Where(d => d.IsActive)
+            .Include(d => d.Appointments)
+            .Include(d => d.Specialty)
             .ToListAsync();
 
         var results = new List<DoctorWithAvailabilityResponse>();
 
-        foreach (var doctor in doctors)
+        results = doctors.Select(doctor =>
         {
-            // BUG: This is a separate DB query for EACH doctor!
-            var upcomingCount = await _db.Appointments
-                .Where(a => a.DoctorId == doctor.Id
-                         && a.AppointmentDateTime > DateTime.UtcNow
-                         && a.Status == AppointmentStatus.Scheduled)
-                .CountAsync();
-
-            // BUG #6 (partial): String interpolation in logging hot path
+            var upcomingCount = doctor.Appointments
+                .Count(a => a.AppointmentDateTime > DateTime.UtcNow && a.Status == AppointmentStatus.Scheduled);
+            // Log the count (still in hot path, but at least not a separate query)
             _logger.LogInformation($"Doctor {doctor.FullName} has {upcomingCount} upcoming appointments");
-
-            // Also a separate query per doctor for the specialty name
-            var specialty = await _db.Specialties.FindAsync(doctor.SpecialtyId);
-
-            results.Add(new DoctorWithAvailabilityResponse(
+            return new DoctorWithAvailabilityResponse(
                 doctor.Id,
                 doctor.FullName,
                 doctor.Email,
-                specialty?.Name ?? "Unknown",
+                doctor.Specialty?.Name ?? "Unknown",
                 upcomingCount,
                 new List<DateTime>() // Simplified: not calculating actual slots
-            ));
-        }
+            );
+        }).ToList();
 
         return results;
     }
