@@ -1,7 +1,9 @@
-using Microsoft.EntityFrameworkCore;
+using MediTrack.Api.Common;
 using MediTrack.Api.Data;
 using MediTrack.Api.DTOs;
 using MediTrack.Api.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace MediTrack.Api.Services;
 
@@ -9,11 +11,13 @@ public class DoctorService : IDoctorService
 {
     private readonly MediTrackDbContext _db;
     private readonly ILogger<DoctorService> _logger;
+    private readonly IMemoryCache _cache;
 
-    public DoctorService(MediTrackDbContext db, ILogger<DoctorService> logger)
+    public DoctorService(MediTrackDbContext db, ILogger<DoctorService> logger, IMemoryCache cache)
     {
         _db = db;
         _logger = logger;
+        _cache = cache;
     }
 
     public async Task<List<DoctorResponse>> GetAllDoctorsAsync()
@@ -61,6 +65,11 @@ public class DoctorService : IDoctorService
     /// </summary>
     public async Task<List<DoctorWithAvailabilityResponse>> GetDoctorsWithAvailabilityAsync()
     {
+        if (_cache.TryGetValue(Constants.AVAILABLE_DOCTORS_KEY, out List<DoctorWithAvailabilityResponse>? cached))
+        {
+            return cached!;
+        }
+
         // BUG #1: N+1 query — loads doctors, then queries appointments one-by-one
         //fix: use Include to load appointments in the same query
         var doctors = await _db.Doctors
@@ -86,6 +95,13 @@ public class DoctorService : IDoctorService
                 new List<DateTime>() // Simplified: not calculating actual slots
             );
         }).ToList();
+
+        var cacheEntryOptions = new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
+        };
+
+        _cache.Set(Constants.AVAILABLE_DOCTORS_KEY, results, cacheEntryOptions);
 
         return results;
     }

@@ -1,10 +1,11 @@
-using Moq;
-using Microsoft.Extensions.Logging;
-using Microsoft.EntityFrameworkCore;
 using MediTrack.Api.Data;
 using MediTrack.Api.DTOs;
 using MediTrack.Api.Models;
 using MediTrack.Api.Services;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
+using Moq;
 
 namespace MediTrack.Tests;
 
@@ -46,6 +47,14 @@ namespace MediTrack.Tests;
 /// </summary>
 public class AppointmentServiceTests
 {
+
+    private readonly MemoryCache _memoryCache;
+
+    public AppointmentServiceTests()
+    {
+        _memoryCache = new MemoryCache(new MemoryCacheOptions());
+    }
+
     private MediTrackDbContext CreateInMemoryContext()
     {
         var options = new DbContextOptionsBuilder<MediTrackDbContext>()
@@ -107,9 +116,8 @@ public class AppointmentServiceTests
         using var db = CreateInMemoryContext();
         var doctor = await SeedDoctor(db, id: 200);
         var patient = await SeedPatient(db, id: 200);
-
         var loggerMock = new Mock<ILogger<AppointmentService>>();
-        var service = new AppointmentService(db, loggerMock.Object);
+        var service = new AppointmentService(db, loggerMock.Object, _memoryCache);
 
         var appointmentDateTime = DateTime.UtcNow.AddDays(1).Date.AddHours(9); // tomorrow at 09:00 UTC
         var request = new BookAppointmentRequest(
@@ -163,7 +171,7 @@ public class AppointmentServiceTests
         await db.SaveChangesAsync();
 
         var loggerMock = new Mock<ILogger<AppointmentService>>();
-        var service = new AppointmentService(db, loggerMock.Object);
+        var service = new AppointmentService(db, loggerMock.Object, _memoryCache);
 
         // attempt to book another appointment for the same doctor at the same time with a different patient
         var request = new BookAppointmentRequest(
@@ -187,7 +195,7 @@ public class AppointmentServiceTests
         var patient = await SeedPatient(db, id: 300);
 
         var loggerMock = new Mock<ILogger<AppointmentService>>();
-        var service = new AppointmentService(db, loggerMock.Object);
+        var service = new AppointmentService(db, loggerMock.Object, _memoryCache);
 
         var missingDoctorId = 9999;
         var appointmentDateTime = DateTime.UtcNow.AddDays(3).Date.AddHours(11);
@@ -212,7 +220,7 @@ public class AppointmentServiceTests
         var doctor = await SeedDoctor(db, id: 400);
 
         var loggerMock = new Mock<ILogger<AppointmentService>>();
-        var service = new AppointmentService(db, loggerMock.Object);
+        var service = new AppointmentService(db, loggerMock.Object, _memoryCache);
 
         var missingPatientId = 8888;
         var appointmentDateTime = DateTime.UtcNow.AddDays(4).Date.AddHours(14);
@@ -253,7 +261,7 @@ public class AppointmentServiceTests
         await db.SaveChangesAsync();
 
         var loggerMock = new Mock<ILogger<AppointmentService>>();
-        var service = new AppointmentService(db, loggerMock.Object);
+        var service = new AppointmentService(db, loggerMock.Object, _memoryCache);
 
         // Act
         var result = await service.CancelAppointmentAsync(appointment.Id);
@@ -293,7 +301,7 @@ public class AppointmentServiceTests
         await db.SaveChangesAsync();
 
         var loggerMock = new Mock<ILogger<AppointmentService>>();
-        var service = new AppointmentService(db, loggerMock.Object);
+        var service = new AppointmentService(db, loggerMock.Object, _memoryCache);
 
         // Act & Assert
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CancelAppointmentAsync(appointment.Id));
@@ -303,5 +311,48 @@ public class AppointmentServiceTests
         var persisted = await db.Appointments.FirstOrDefaultAsync(a => a.Id == appointment.Id);
         Assert.NotNull(persisted);
         Assert.Equal(AppointmentStatus.Completed, persisted!.Status);
+    }
+
+    [Fact]
+    public async Task BookAppointment_ShouldInvalidateDoctorAvailabilityCache()
+    {
+        // Arrange
+        using var db = CreateInMemoryContext();
+        var doctor = await SeedDoctor(db, id: 800);
+        var patient = await SeedPatient(db, id: 800);
+
+        var loggerDoctor = new Mock<ILogger<DoctorService>>();
+        var loggerAppointment = new Mock<ILogger<AppointmentService>>();
+
+        var doctorService = new DoctorService(db, loggerDoctor.Object, _memoryCache);
+        var appointmentService = new AppointmentService(db, loggerAppointment.Object, _memoryCache);
+
+        // Prime cache
+        var initial = await doctorService.GetDoctorsWithAvailabilityAsync();
+        var initialForDoctor = initial.FirstOrDefault(d => d.Id == doctor.Id);
+        Assert.NotNull(initialForDoctor);
+        Assert.Equal(0, initialForDoctor!.UpcomingAppointmentCount);
+        Assert.Equal(1, _memoryCache.Count); // ensure cache is populated
+
+        // Act: book an appointment which should invalidate the doctor availability cache
+        var appointmentDateTime = DateTime.UtcNow.AddDays(1).Date.AddHours(9);
+        var request = new BookAppointmentRequest(
+            patient.Id,
+            doctor.Id,
+            appointmentDateTime,
+            "Simple cache invalidation test",
+            null
+        );
+
+        var booked = await appointmentService.BookAppointmentAsync(request);
+        Assert.NotNull(booked);
+
+        // Assert: cache refreshed and reflects the new upcoming appointment
+        Assert.Equal(0, _memoryCache.Count); // ensure cache is empty after invalidation on appt booking
+        var after = await doctorService.GetDoctorsWithAvailabilityAsync();
+        var afterForDoctor = after.FirstOrDefault(d => d.Id == doctor.Id);
+        Assert.NotNull(afterForDoctor);
+        Assert.Equal(1, afterForDoctor!.UpcomingAppointmentCount);
+        Assert.Equal(1, _memoryCache.Count); // ensure cache is populated again
     }
 }

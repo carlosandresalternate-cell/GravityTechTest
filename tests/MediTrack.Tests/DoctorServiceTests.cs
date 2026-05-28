@@ -1,10 +1,11 @@
-using Moq;
-using Microsoft.Extensions.Logging;
-using Microsoft.EntityFrameworkCore;
 using MediTrack.Api.Data;
 using MediTrack.Api.DTOs;
 using MediTrack.Api.Models;
 using MediTrack.Api.Services;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
+using Moq;
 
 namespace MediTrack.Tests;
 
@@ -27,6 +28,12 @@ namespace MediTrack.Tests;
 /// </summary>
 public class DoctorServiceTests
 {
+    private readonly MemoryCache _memoryCache;
+
+    public DoctorServiceTests()
+    {
+        _memoryCache = new MemoryCache(new MemoryCacheOptions());
+    }
     private MediTrackDbContext CreateInMemoryContext()
     {
         var options = new DbContextOptionsBuilder<MediTrackDbContext>()
@@ -102,7 +109,7 @@ public class DoctorServiceTests
         await db.SaveChangesAsync();
 
         var logger = new Mock<ILogger<DoctorService>>();
-        var service = new DoctorService(db, logger.Object);
+        var service = new DoctorService(db, logger.Object, _memoryCache);
 
         // Act
         var results = await service.GetDoctorsWithAvailabilityAsync();
@@ -135,7 +142,7 @@ public class DoctorServiceTests
         await db.SaveChangesAsync();
 
         var logger = new Mock<ILogger<DoctorService>>();
-        var service = new DoctorService(db, logger.Object);
+        var service = new DoctorService(db, logger.Object, _memoryCache);
 
         // Act
         var results = await service.GetDoctorsWithAvailabilityAsync();

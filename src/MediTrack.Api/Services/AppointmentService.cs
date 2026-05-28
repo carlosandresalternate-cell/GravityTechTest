@@ -1,7 +1,9 @@
-using Microsoft.EntityFrameworkCore;
+using MediTrack.Api.Common;
 using MediTrack.Api.Data;
 using MediTrack.Api.DTOs;
 using MediTrack.Api.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace MediTrack.Api.Services;
 
@@ -9,11 +11,13 @@ public class AppointmentService : IAppointmentService
 {
     private readonly MediTrackDbContext _db;
     private readonly ILogger<AppointmentService> _logger;
+    private readonly IMemoryCache _cache;
 
-    public AppointmentService(MediTrackDbContext db, ILogger<AppointmentService> logger)
+    public AppointmentService(MediTrackDbContext db, ILogger<AppointmentService> logger, IMemoryCache cache)
     {
         _db = db;
         _logger = logger;
+        _cache = cache;
     }
 
     /// <summary>
@@ -121,6 +125,9 @@ public class AppointmentService : IAppointmentService
 
         await transaction.CommitAsync();
 
+        // Invalidate doctor availability cache — a new appointment changes upcoming counts
+        _cache.Remove(Constants.AVAILABLE_DOCTORS_KEY);
+
         _logger.LogInformation($"Appointment {appointment.Id} booked successfully");
 
         return MapToResponse(appointment);
@@ -157,6 +164,9 @@ public class AppointmentService : IAppointmentService
         appointment.Status = AppointmentStatus.Cancelled;
         appointment.UpdatedAt = DateTime.UtcNow;
         await _db.SaveChangesAsync();
+
+        // Invalidate doctor availability cache — a cancelled appointment changes upcoming counts
+        _cache.Remove(Constants.AVAILABLE_DOCTORS_KEY);
 
         _logger.LogInformation($"Appointment {appointmentId} cancelled");
         return true;

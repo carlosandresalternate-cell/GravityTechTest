@@ -18,6 +18,7 @@ builder.Services.AddDbContext<MediTrackDbContext>(options =>
     options.UseSqlite(sqliteConnection));
 
 // Application services
+builder.Services.AddMemoryCache();
 builder.Services.AddScoped<IDoctorService, DoctorService>();
 builder.Services.AddScoped<IPatientService, PatientService>();
 builder.Services.AddScoped<IAppointmentService, AppointmentService>();
